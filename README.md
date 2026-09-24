@@ -198,6 +198,6 @@ full-width numbers, Unicode chars and concurrent handle use. The design also
 consults [rust-csv's reader API](https://docs.rs/csv/latest/csv/struct.ReaderBuilder.html);
 it does not claim identical defaults or permissive parsing behavior.
 
-Run `just ecosystem-test csv` from the repository root. `consumer::csv` exercises
+Run `(cd ../verification && just ecosystem-test csv)` from this library repository. `consumer::csv` exercises
 ordinary versioned resolution independently. All tests are GoML-native; no Python
 helper or CI integration is required.

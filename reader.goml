@@ -189,7 +189,8 @@ impl[R: Read] Reader[R] {
         let start = self.current();
         let fields = Vec::new();
         let mut data = Vec::new();
-        let mut raw = Vec::new();
+        let mut raw = data;
+        let mut raw_shared = true;
         let mut field_position = start;
         let mut state = 0;
         let mut consumed = 0;
@@ -304,13 +305,20 @@ impl[R: Read] Reader[R] {
                         )
                     }
                     data = Vec::new();
-                    raw = Vec::new();
+                    raw = data;
+                    raw_shared = true;
                     field_position = self.current();
                     state = 0;
                     continue
                 }
             }
-            raw.push(value);
+            if state == 0 && value == self.options.quote {
+                raw = Vec::new();
+                raw_shared = false;
+            }
+            if !raw_shared {
+                raw.push(value);
+            }
             if state == 0 {
                 if value == self.options.quote {
                     state = 2;

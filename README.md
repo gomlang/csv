@@ -187,8 +187,11 @@ applies to empty excess fields and header rows, and fuses the reader. Input may 
 ahead up to the configured read buffer; an additional byte can be probed to
 distinguish exact-limit EOF from an oversized stream.
 
-The reader retains decoded field bytes and bounded wire bytes for precise UTF-8
-positions. It does not seek, infer dialects, parse comments, normalize newline
+Unquoted fields share one internal byte buffer between decoded data and wire
+position tracking. This removes a second field-sized allocation and copy for
+untrimmed unquoted data. Quoted fields retain separate bounded wire bytes for
+precise UTF-8 positions; trimming may allocate a smaller decoded buffer.
+Public record accessors still return independent containers. It does not seek, infer dialects, parse comments, normalize newline
 bytes within fields, automatically transcode other character sets, or perform
 spreadsheet formula sanitization.
 

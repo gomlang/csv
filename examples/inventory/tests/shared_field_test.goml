@@ -1,0 +1,73 @@
+package tests;
+
+use ecosystem::csv;
+use std::bytes;
+use std::io;
+use std::testing;
+
+#[test]
+fn mixed_field_storage_preserves_snapshots_and_utf8_wire_positions() -> () {
+    for width in Vec::from_array([1, 2, 3, 64]) {
+        for trim in Vec::from_array([false, true]) {
+            let options = csv::ReadOptions {
+                buffer_size: width,
+                trim,
+                strict: false,
+                ..csv::ReadOptions::new(),
+            };
+            let wire = bytes::Bytes::from_string(" abc ,\"x\"\"y\"tail,中文\r\nnext,row,end\r\n");
+            let reader = testing::expect_ok(
+                csv::Reader::new(io::Cursor::new(wire), options),
+                "reader",
+            );
+            let record = testing::expect_some(
+                testing::expect_ok(reader.next_bytes(), "first"),
+                "row",
+            );
+            let field = testing::expect_some(record.get(0), "field");
+            field.set(0, b'!');
+            let second = testing::expect_some(testing::expect_ok(reader.next(), "next"), "row");
+            testing::assert_eq(testing::expect_some(second.get(0), "next field"), "next");
+            let values = testing::expect_ok(record.strings(), "saved row").values();
+            testing::assert(
+                values
+                    == Vec::from_array(
+                        [
+                            if trim {
+                                "abc"
+                            } else {
+                                " abc "
+                            },
+                            "x\"ytail",
+                            "中文",
+                        ],
+                    ),
+            );
+        }
+        for (prefix, expected) in Vec::from_array(
+            [
+                (b"ab, \t", csv::Position { byte: 5, record: 1, line: 1, column: 6 }),
+                (b"ab,\"x\"\"\r\n", csv::Position { byte: 9, record: 1, line: 2, column: 1 }),
+            ],
+        ) {
+            let quoted = prefix.len() > 5;
+            let wire = bytes::Bytes::from_vec(prefix);
+            wire.push(255);
+            if quoted {
+                wire.push(b'"');
+            }
+            wire.extend_from_slice(b"\nvalid,row\n".as_slice());
+            let reader = testing::expect_ok(
+                csv::Reader::new(
+                    io::Cursor::new(wire),
+                    csv::ReadOptions { buffer_size: width, trim: true, ..csv::ReadOptions::new() },
+                ),
+                "invalid reader",
+            );
+            let failure = testing::expect_err(reader.next(), "invalid UTF-8");
+            testing::assert_eq(failure.kind, csv::ErrorKind::Utf8);
+            testing::assert_eq(failure.position, expected);
+            testing::assert(testing::expect_ok(reader.next(), "recover next row").is_some());
+        }
+    }
+}

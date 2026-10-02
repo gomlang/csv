@@ -1,6 +1,6 @@
 package tests;
 
-use consumer::csv as example;
+use ecosystem::csv::examples::inventory as example;
 use std::bytes;
 use std::fs;
 use std::io;

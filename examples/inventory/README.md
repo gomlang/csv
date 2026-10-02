@@ -1,7 +1,7 @@
-# CSV inventory consumer
+# CSV inventory example
 
-This independent consumer imports `ecosystem::csv = "0.1.0"` and
-`ecosystem::tempfile = "0.1.0"` through the isolated ecosystem registry.
+This example uses the CSV library in this repository and the
+`ecosystem::tempfile = "0.1.0"` development dependency.
 
 The runnable example imports an inventory file with a UTF-8 BOM, quoted and
 reordered headers, Unicode names, embedded commas, escaped quotes and a multiline
@@ -16,16 +16,18 @@ The expected inventory is three rows, two active products, six units and 6,960
 cents. The example prints its summary and normalized CSV.
 
 ```sh
-(cd ../../verification && just ecosystem-test csv)
+(cd ../../../verification && just ecosystem-test csv)
 ```
 
 For direct commands, obtain an isolated registry with
-`../../verification/_artifact/bin/verification --registry-only` from this
+`../../../verification/_artifact/bin/verification --registry-only` from this
 directory, then set the returned path as `GOML_HOME` while running
-`../../../goml-dev/stage2/bin/goml check`, `goml test`, or `goml run` in this directory.
-`GOFLAGS=-race goml test --target-dir _artifact/race` validates the same native
-consumer tests with the race detector.
+`../../../../goml-dev/stage2/bin/goml check --example inventory`, `goml test --example inventory`, or `goml run --example inventory` in this directory.
+`GOFLAGS=-race goml test --example inventory --target-dir _artifact/race` validates the same native
+example tests with the race detector.
 
 Tests cover real file round trips and cleanup, cross-module generic `Read`/`Write`
 adapters, derived Serde conversion, leading-zero identifiers, optional notes,
 quoted multiline fields, empty inventory exports, integer conversion errors and inventory-total overflow.
+
+This example shares the library root manifest and development dependencies. Run `goml verify --example inventory` to build and test it as an independent downstream module.

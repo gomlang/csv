@@ -293,6 +293,16 @@ impl[R: Read] Reader[R] {
                 }
                 if value == self.options.delimiter {
                     push_field(fields, data, raw, field_position, self.options)?;
+                    if fields.len() >= self.options.limits.max_columns {
+                        return Result::Err(
+                            error(
+                                ErrorKind::Limit,
+                                self.current(),
+                                Option::Some(fields.len()),
+                                "column count limit exceeded",
+                            ),
+                        )
+                    }
                     data = Vec::new();
                     raw = Vec::new();
                     field_position = self.current();

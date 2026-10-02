@@ -1,0 +1,68 @@
+package tests;
+
+use ecosystem::csv;
+use std::bytes;
+use std::io;
+use io::Read;
+use std::testing;
+
+struct ColumnSource {
+    data: Vec[u8],
+    position: Ref[isize],
+}
+
+impl Read for ColumnSource {
+    fn read(self: ColumnSource, output: MutSlice[u8]) -> Result[isize, io::Error] {
+        if self.position.get() == self.data.len() {
+            testing::fail("reader requested the forbidden column");
+            return Result::Ok(0)
+        }
+        output[0] = self.data[self.position.get()];
+        self.position.set(self.position.get() + 1);
+        Result::Ok(1)
+    }
+}
+
+#[test]
+fn column_limit_rejects_at_the_delimiter_without_reading_the_excess_field() -> () {
+    for source in Vec::from_array(["a,", "\"a,b\",", ",", "\"\","]) {
+        for headers in Vec::from_array([false, true]) {
+            let input = ColumnSource { data: source.to_bytes(), position: Ref::new(0) };
+            let options = csv::ReadOptions {
+                headers,
+                buffer_size: 1,
+                limits: csv::Limits { max_columns: 1, ..csv::Limits::new() },
+                ..csv::ReadOptions::new(),
+            };
+            let reader = testing::expect_ok(csv::Reader::new(input, options), "reader");
+            let error = testing::expect_err(reader.next_bytes(), "excess column");
+            testing::assert_eq(error.kind, csv::ErrorKind::Limit);
+            testing::assert(error.field == Option::Some(1));
+            testing::assert_eq(error.position.byte, source.byte_len());
+            testing::assert_eq(input.position.get(), source.byte_len());
+            testing::assert_eq(
+                testing::expect_err(reader.next_bytes(), "sticky failure").position,
+                error.position,
+            );
+        }
+    }
+}
+
+#[test]
+fn column_limit_preserves_quoted_delimiters_and_exact_width() -> () {
+    let reader = testing::expect_ok(
+        csv::Reader::new(
+            io::Cursor::new(bytes::Bytes::from_string("\"a,b\"\r\n\"\"\r\n")),
+            csv::ReadOptions {
+                limits: csv::Limits { max_columns: 1, ..csv::Limits::new() },
+                ..csv::ReadOptions::new(),
+            },
+        ),
+        "reader",
+    );
+    let first = testing::expect_some(testing::expect_ok(reader.next(), "first row"), "row");
+    testing::assert(first.get(0) == Option::Some("a,b"));
+    let second = testing::expect_some(testing::expect_ok(reader.next(), "second row"), "row");
+    testing::assert(second.get(0) == Option::Some(""));
+    testing::assert(testing::expect_ok(reader.next(), "EOF").is_none());
+}

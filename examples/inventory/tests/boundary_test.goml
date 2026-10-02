@@ -1,0 +1,25 @@
+package tests;
+
+use ecosystem::csv;
+use std::bytes;
+use std::io;
+use std::testing;
+
+#[test]
+fn downstream_column_budget_rejects_a_missing_excess_field() -> () {
+    let reader = testing::expect_ok(
+        csv::Reader::new(
+            io::Cursor::new(bytes::Bytes::from_string("name,")),
+            csv::ReadOptions {
+                headers: true,
+                limits: csv::Limits { max_columns: 1, ..csv::Limits::new() },
+                ..csv::ReadOptions::new(),
+            },
+        ),
+        "reader",
+    );
+    let problem = testing::expect_err(reader.headers(), "header column limit");
+    testing::assert_eq(problem.kind, csv::ErrorKind::Limit);
+    testing::assert_eq(problem.position.byte, 5);
+    testing::assert(problem.field == Option::Some(1));
+}

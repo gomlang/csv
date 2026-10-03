@@ -1,0 +1,38 @@
+package tests;
+
+use ecosystem::csv;
+use std::bytes;
+use std::io;
+use std::testing;
+
+#[test]
+fn consumer_skips_comments_without_changing_existing_read_options_shape() -> () {
+    let options = csv::ReadOptions {
+        delimiter: b',',
+        quote: b'"',
+        terminator: csv::Terminator::Any,
+        strict: true,
+        flexible: false,
+        headers: true,
+        duplicate_headers: csv::HeaderPolicy::Reject,
+        strip_bom: true,
+        skip_blank: false,
+        trim: false,
+        buffer_size: 1,
+        limits: csv::Limits::new(),
+    };
+    let reader = testing::expect_ok(
+        csv::Reader::with_comment(
+            io::Cursor::new(bytes::Bytes::from_string("# inventory\nname,count\n\"#part\",2\n")),
+            options,
+            b'#',
+        ),
+        "comment reader",
+    );
+    let header = testing::expect_some(testing::expect_ok(reader.headers(), "headers"), "header");
+    testing::assert(header.values() == Vec::from_array(["name", "count"]));
+    let row = testing::expect_some(testing::expect_ok(reader.next(), "row"), "row present");
+    testing::assert(row.values() == Vec::from_array(["#part", "2"]));
+    testing::assert_eq(row.position().record, 2);
+    testing::assert_eq(row.position().line, 3);
+}

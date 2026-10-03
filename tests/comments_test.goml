@@ -1,0 +1,127 @@
+package tests;
+
+use ecosystem::csv;
+use std::bytes;
+use std::io;
+use std::testing;
+
+#[test]
+fn comments_skip_only_record_start_and_preserve_headers_and_positions() -> () {
+    let input = "\uFEFF#ignored,\"unterminated\r\nname,value\r\n#again\nAda,\"one\n#inside\"\r\n\"#quoted\",two\n #spaced,three\n#tail";
+    let reader = ok(
+        csv::Reader::with_comment(
+            chunks(input, 1),
+            csv::ReadOptions {
+                headers: true,
+                trim: true,
+                buffer_size: 1,
+                ..csv::ReadOptions::new(),
+            },
+            b'#',
+        ),
+    );
+    let header = testing::expect_some(ok(reader.headers()), "header");
+    testing::assert(header.values() == Vec::from_array(["name", "value"]));
+    testing::assert_eq(header.position().line, 2);
+    testing::assert_eq(header.position().record, 1);
+    let first = one(reader);
+    testing::assert(first.values() == Vec::from_array(["Ada", "one\n#inside"]));
+    testing::assert_eq(first.position().line, 4);
+    testing::assert_eq(first.position().record, 2);
+    testing::assert(one(reader).values() == Vec::from_array(["#quoted", "two"]));
+    testing::assert(one(reader).values() == Vec::from_array(["#spaced", "three"]));
+    testing::assert(ok(reader.next()).is_none());
+    testing::assert(ok(reader.next()).is_none());
+    let ordinary = ok(csv::Reader::new(chunks("#literal\n", 1), csv::ReadOptions::new()));
+    testing::assert(one(ordinary).values() == Vec::from_array(["#literal"]));
+}
+
+#[test]
+fn comments_obey_custom_and_crlf_terminators_and_do_not_count_as_records() -> () {
+    let options = csv::ReadOptions {
+        terminator: csv::Terminator::Byte(b'|'),
+        limits: csv::Limits { max_records: 1, ..csv::Limits::new() },
+        ..csv::ReadOptions::new(),
+    };
+    let reader = ok(
+        csv::Reader::with_comment(chunks("#ignored\nline|value|#tail", 1), options, b'#'),
+    );
+    let value = one(reader);
+    testing::assert(value.values() == Vec::from_array(["value"]));
+    testing::assert_eq(value.position().record, 1);
+    testing::assert_eq(value.position().line, 2);
+    testing::assert(ok(reader.next()).is_none());
+    for input in["#one\r#two\n", "#only", ""] {
+        let options = csv::ReadOptions {
+            limits: csv::Limits { max_records: 0, max_field_bytes: 0, ..csv::Limits::new() },
+            ..csv::ReadOptions::new(),
+        };
+        testing::assert(
+            ok(ok(csv::Reader::with_comment(chunks(input, 1), options, b'#')).next()).is_none(),
+        );
+    }
+    let options = csv::ReadOptions { terminator: csv::Terminator::CrLf, ..csv::ReadOptions::new() };
+    for input in["#bad\n", "#bad\rX", "#bad\r"] {
+        kind(
+            ok(csv::Reader::with_comment(chunks(input, 1), options, b'#')).next(),
+            csv::ErrorKind::Syntax,
+        );
+    }
+    let reader = ok(csv::Reader::with_comment(chunks("#ok\r\nx\r\n", 1), options, b'#'));
+    testing::assert(one(reader).values() == Vec::from_array(["x"]));
+}
+
+#[test]
+fn comment_limits_include_marker_terminator_and_all_input_bytes() -> () {
+    for input in["#abc", "#ab\n", "#a\r\n"] {
+        let options = csv::ReadOptions {
+            limits: csv::Limits { max_record_bytes: 3, ..csv::Limits::new() },
+            ..csv::ReadOptions::new(),
+        };
+        let reader = ok(csv::Reader::with_comment(chunks(input, 1), options, b'#'));
+        let failure = testing::expect_err(reader.next(), "comment budget");
+        testing::assert_eq(failure.kind, csv::ErrorKind::Limit);
+        testing::assert_eq(failure.position.byte, 3);
+        testing::assert_eq(
+            testing::expect_err(reader.next(), "sticky error").position,
+            failure.position,
+        );
+    }
+    let options = csv::ReadOptions {
+        limits: csv::Limits { max_record_bytes: 3, max_total_bytes: 5, ..csv::Limits::new() },
+        ..csv::ReadOptions::new(),
+    };
+    let reader = ok(csv::Reader::with_comment(chunks("#a\n#b\n", 1), options, b'#'));
+    testing::assert_eq(testing::expect_err(reader.next(), "total budget").position.byte, 5);
+    let reader = ok(csv::Reader::with_comment(chunks("#a\nx\n", 1), options, b'#'));
+    testing::assert(one(reader).values() == Vec::from_array(["x"]));
+    testing::assert(ok(reader.next()).is_none());
+}
+
+#[test]
+fn comment_configuration_rejects_conflicts_and_preserves_bom_probe_bytes() -> () {
+    for marker in[b',', b'"', b'\n', b'\r', 128.to_u8()] {
+        kind(
+            csv::Reader::with_comment(chunks("", 1), csv::ReadOptions::new(), marker),
+            csv::ErrorKind::Options,
+        );
+    }
+    kind(
+        csv::Reader::with_comment(
+            chunks("", 1),
+            csv::ReadOptions { terminator: csv::Terminator::Byte(b'|'), ..csv::ReadOptions::new() },
+            b'|',
+        ),
+        csv::ErrorKind::Options,
+    );
+    let original = Vec::from_array([239.to_u8(), 187.to_u8(), b'x']);
+    let reader = ok(
+        csv::Reader::with_comment(
+            io::Cursor::new(bytes::Bytes::from_vec(original)),
+            csv::ReadOptions::new(),
+            b'#',
+        ),
+    );
+    let record = testing::expect_some(ok(reader.next_bytes()), "raw partial BOM");
+    testing::assert(testing::expect_some(record.get(0), "field").to_vec() == original);
+}

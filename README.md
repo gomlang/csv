@@ -89,6 +89,25 @@ fields. It does not permit whitespace before an opening quote or after a closing
 quote in strict mode. `skip_blank: true` ignores records with no source field
 bytes; quoted empty fields and comma-separated empty fields remain records.
 
+`Reader::with_comment(source, options, b'#')` enables comment records without
+changing `ReadOptions` or the default `Reader::new` behavior. The marker must
+be an ASCII byte distinct from delimiter, quote, record terminator, CR and LF.
+It is recognized only as the first source byte of a record (after an optional
+initial BOM). Leading spaces remain data even with trimming enabled. Quoted
+markers and markers on embedded lines inside a quoted field remain data.
+Comments ignore quotes and delimiters and end at the configured record
+terminator; strict CRLF handling applies to comment records too. A final comment
+without a terminator is accepted. With a custom terminator, a comment can span
+physical CR/LF lines until that terminator appears.
+
+Comments are skipped before headers and width detection. They do not consume
+record numbers or `max_records`; physical lines and byte offsets still include
+them. Every comment, including its marker and terminator, is bounded by
+`max_record_bytes`, and all comment bytes count toward `max_total_bytes`.
+Field and column budgets do not apply to skipped comments. No comment text is
+buffered. The writer has no comment dialect; use `QuoteStyle::Always` when
+writing arbitrary first fields for a comment-enabled reader.
+
 `QuoteStyle::Necessary`, `Always` and `Never` control output. Necessary quoting
 handles delimiters, quotes, CR/LF, custom terminators, a sole empty field and a
 leading BOM in the first field. The latter preserves actual U+FEFF field content

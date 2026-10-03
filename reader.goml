@@ -8,6 +8,7 @@ use std::serde;
 pub struct Reader[R] {
     reader: R,
     options: ReadOptions,
+    comment: Option[byte],
     gate: Channel[()],
     buffer: bytes::Bytes,
     offset: Ref[isize],
@@ -26,6 +27,33 @@ pub struct Reader[R] {
 
 impl[R: Read] Reader[R] {
     pub fn new(reader: R, options: ReadOptions) -> Result[Reader[R], Error] {
+        Reader::configured(reader, options, Option::None)
+    }
+
+    pub fn with_comment(reader: R, options: ReadOptions, marker: byte) -> Result[Reader[R], Error] {
+        let conflict = match options.terminator {
+            Terminator::Byte(value) => marker == value,
+            _ => false,
+        };
+        if marker > 127 || marker == 10 || marker == 13 || marker == options.delimiter
+            || marker == options.quote
+            || conflict {
+            return Result::Err(
+                error(
+                    ErrorKind::Options,
+                    Position::start(),
+                    Option::None,
+                    "comment marker must be an ASCII byte distinct from delimiter, quote and terminator, and cannot be CR or LF",
+                ),
+            )
+        }
+        Reader::configured(reader, options, Option::Some(marker))
+    }
+
+    fn configured(reader: R, options: ReadOptions, comment: Option[byte]) -> Result[
+        Reader[R],
+        Error,
+    ] {
         options.validate()?;
         let buffer = bytes::Bytes::new();
         for _ in 0..options.buffer_size {
@@ -37,6 +65,7 @@ impl[R: Read] Reader[R] {
             Reader {
                 reader,
                 options,
+                comment,
                 gate,
                 buffer,
                 offset: Ref::new(0),
@@ -154,8 +183,95 @@ impl[R: Read] Reader[R] {
     }
 
     fn unget(self: Reader[R], item: (byte, Position)) -> () {
-        self.pending.set(Vec::from_array([item]));
+        let pending = self.pending.get();
+        let remaining = Vec::from_array([item]);
+        for index in self.pending_offset.get()..pending.len() {
+            remaining.push(pending[index]);
+        }
+        self.pending.set(remaining);
         self.pending_offset.set(0);
+    }
+
+    fn skip_comments(self: Reader[R]) -> Result[(), Error] {
+        let marker = match self.comment {
+            Some(marker) => marker,
+            None => return Result::Ok(()),
+        };
+        loop {
+            match self.next_byte()? {
+                None => return Result::Ok(()),
+                Some(item) if item.0 != marker => {
+                    self.unget(item);
+                    return Result::Ok(())
+                },
+                Some(_) => (),
+            }
+            let mut consumed = 1;
+            loop {
+                let (value, position) = match self.next_byte()? {
+                    None => return Result::Ok(()),
+                    Some(item) => item,
+                };
+                consumed += 1;
+                if consumed > self.options.limits.max_record_bytes {
+                    return Result::Err(
+                        error(
+                            ErrorKind::Limit,
+                            position,
+                            Option::None,
+                            "comment byte limit exceeded",
+                        ),
+                    )
+                }
+                let terminates = match self.options.terminator {
+                    Terminator::Any => value == 10 || value == 13,
+                    Terminator::CrLf => value == 13,
+                    Terminator::Byte(expected) => value == expected,
+                };
+                if terminates {
+                    if value == 13 && self.options.terminator != Terminator::Byte(13) {
+                        match self.next_byte()? {
+                            Some((10, position)) => {
+                                consumed += 1;
+                                if consumed > self.options.limits.max_record_bytes {
+                                    return Result::Err(
+                                        error(
+                                            ErrorKind::Limit,
+                                            position,
+                                            Option::None,
+                                            "comment byte limit exceeded",
+                                        ),
+                                    )
+                                }
+                            },
+                            Some(item) if self.options.terminator == Terminator::Any => self.unget(
+                                item,
+                            ),
+                            None if self.options.terminator == Terminator::Any => (),
+                            _ => return Result::Err(
+                                error(
+                                    ErrorKind::Syntax,
+                                    position,
+                                    Option::None,
+                                    "expected LF after comment CR",
+                                ),
+                            ),
+                        }
+                    }
+                    break;
+                }
+                if self.options.terminator == Terminator::CrLf && value == 10 {
+                    return Result::Err(
+                        error(
+                            ErrorKind::Syntax,
+                            position,
+                            Option::None,
+                            "expected CRLF comment terminator",
+                        ),
+                    )
+                }
+            }
+        }
     }
 
     fn current(self: Reader[R]) -> Position {
@@ -186,6 +302,7 @@ impl[R: Read] Reader[R] {
             return Result::Err(failure)
         }
         self.initialize()?;
+        self.skip_comments()?;
         let start = self.current();
         let fields = Vec::new();
         let mut data = Vec::new();

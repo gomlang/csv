@@ -235,6 +235,7 @@ struct Field {
     data: Vec[byte],
     raw: Vec[byte],
     position: Position,
+    previous_cr: bool,
 }
 
 pub struct ByteRecord {
@@ -247,7 +248,7 @@ impl ByteRecord {
         let fields = Vec::new();
         for value in values {
             let data = value.to_vec().copy();
-            fields.push(Field { data, raw: data, position: Position::start() });
+            fields.push(Field { data, raw: data, position: Position::start(), previous_cr: false });
         }
         ByteRecord { fields, position: Position::start() }
     }
@@ -282,7 +283,12 @@ impl ByteRecord {
         for index in 0..self.fields.len() {
             let field = self.fields[index];
             if let Err(invalid) = utf8::validate(field.raw.as_slice()) {
-                let position = advance(field.position, field.raw, invalid.valid_up_to());
+                let position = advance(
+                    field.position,
+                    field.raw,
+                    invalid.valid_up_to(),
+                    field.previous_cr,
+                );
                 return Result::Err(
                     error(ErrorKind::Utf8, position, Option::Some(index), invalid.to_string()),
                 )
@@ -349,15 +355,17 @@ impl StringRecord {
         let fields = Vec::new();
         for index in 0..self.values.len() {
             let data = utf8::encode(self.values[index]);
-            fields.push(Field { data, raw: data, position: self.positions[index] });
+            fields.push(
+                Field { data, raw: data, position: self.positions[index], previous_cr: false },
+            );
         }
         ByteRecord { fields, position: self.position }
     }
 }
 
-fn advance(position: Position, data: Vec[byte], length: isize) -> Position {
+fn advance(position: Position, data: Vec[byte], length: isize, previous_cr: bool) -> Position {
     let mut result = position;
-    let mut cr = false;
+    let mut cr = previous_cr;
     for index in 0..length {
         let value = data[index];
         result.byte += 1;

@@ -155,9 +155,10 @@ disabled.
 Positions contain a zero-based byte offset and one-based CSV record, physical
 line and byte column. Record numbers include headers and skipped blank records;
 quoted newlines increase physical line numbers without increasing record numbers.
-CRLF counts as one physical newline across read boundaries. BOM bytes contribute
-to byte offsets and columns. `field_position` points to the first wire byte of
-the field, including an opening quote. UTF-8 failures point to the actual invalid
+CRLF counts as one physical newline across read boundaries, including when a
+custom CR terminator puts the LF in the next record and UTF-8 validation is deferred.
+BOM bytes contribute to byte offsets and columns. `field_position` points to the
+first wire byte of the field, including an opening quote. UTF-8 failures point to the actual invalid
 wire byte, including adjustments for doubled quotes and embedded newlines.
 
 Errors expose their category, position, optional zero-based field index, message

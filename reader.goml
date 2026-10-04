@@ -17,7 +17,8 @@ pub struct Reader[R] {
     previous_cr: Ref[bool],
     eof: Ref[bool],
     initialized: Ref[bool],
-    pending: Ref[Vec[(byte, Position)]],
+    // Keep the preceding-CR flag through lookahead for deferred field diagnostics.
+    pending: Ref[Vec[(byte, Position, bool)]],
     pending_offset: Ref[isize],
     failure: Ref[Option[Error]],
     headers_ready: Ref[bool],
@@ -84,7 +85,7 @@ impl[R: Read] Reader[R] {
         )
     }
 
-    fn raw_byte(self: Reader[R]) -> Result[Option[(byte, Position)], Error] {
+    fn raw_byte(self: Reader[R]) -> Result[Option[(byte, Position, bool)], Error] {
         if self.offset.get() == self.length.get() {
             if self.eof.get() {
                 return Result::Ok(Option::None)
@@ -123,13 +124,14 @@ impl[R: Read] Reader[R] {
             )
         }
         let value = self.buffer.get(self.offset.get());
+        let previous_cr = self.previous_cr.get();
         self.offset.set(self.offset.get() + 1);
         let mut next = Position { byte: position.byte + 1, ..position };
         if value == 13 {
             next.line += 1;
             next.column = 1;
         } else if value == 10 {
-            if !self.previous_cr.get() {
+            if !previous_cr {
                 next.line += 1;
             }
             next.column = 1;
@@ -138,7 +140,7 @@ impl[R: Read] Reader[R] {
         }
         self.previous_cr.set(value == 13);
         self.position.set(next);
-        Result::Ok(Option::Some((value, position)))
+        Result::Ok(Option::Some((value, position, previous_cr)))
     }
 
     fn initialize(self: Reader[R]) -> Result[(), Error] {
@@ -168,21 +170,23 @@ impl[R: Read] Reader[R] {
         Result::Ok(())
     }
 
-    fn next_byte(self: Reader[R]) -> Result[Option[(byte, Position)], Error] {
+    fn next_byte(self: Reader[R]) -> Result[Option[(byte, Position, bool)], Error] {
         let pending = self.pending.get();
         let index = self.pending_offset.get();
         if index < pending.len() {
             self.pending_offset.set(index + 1);
             let item = pending[index];
             Result::Ok(
-                Option::Some((item.0, Position { record: self.position.get().record, ..item.1 })),
+                Option::Some(
+                    (item.0, Position { record: self.position.get().record, ..item.1 }, item.2),
+                ),
             )
         } else {
             self.raw_byte()
         }
     }
 
-    fn unget(self: Reader[R], item: (byte, Position)) -> () {
+    fn unget(self: Reader[R], item: (byte, Position, bool)) -> () {
         let pending = self.pending.get();
         let remaining = Vec::from_array([item]);
         for index in self.pending_offset.get()..pending.len() {
@@ -208,7 +212,7 @@ impl[R: Read] Reader[R] {
             }
             let mut consumed = 1;
             loop {
-                let (value, position) = match self.next_byte()? {
+                let (value, position, _) = match self.next_byte()? {
                     None => return Result::Ok(()),
                     Some(item) => item,
                 };
@@ -231,7 +235,7 @@ impl[R: Read] Reader[R] {
                 if terminates {
                     if value == 13 && self.options.terminator != Terminator::Byte(13) {
                         match self.next_byte()? {
-                            Some((10, position)) => {
+                            Some((10, position, _)) => {
                                 consumed += 1;
                                 if consumed > self.options.limits.max_record_bytes {
                                     return Result::Err(
@@ -290,9 +294,10 @@ impl[R: Read] Reader[R] {
         data: Vec[byte],
         raw: Vec[byte],
         field_position: Position,
+        field_previous_cr: bool,
         start: Position,
     ) -> Result[ByteRecord, Error] {
-        push_field(fields, data, raw, field_position, self.options)?;
+        push_field(fields, data, raw, field_position, field_previous_cr, self.options)?;
         self.position.set(Position { record: start.record + 1, ..self.position.get() });
         Result::Ok(ByteRecord { fields, position: start })
     }
@@ -309,11 +314,12 @@ impl[R: Read] Reader[R] {
         let mut raw = data;
         let mut raw_shared = true;
         let mut field_position = start;
+        let mut field_previous_cr = false;
         let mut state = 0;
         let mut consumed = 0;
         loop {
             let item = self.next_byte()?;
-            let (value, position) = match item {
+            let (value, position, previous_cr) = match item {
                 Some(item) => item,
                 None => {
                     if consumed == 0 {
@@ -329,12 +335,20 @@ impl[R: Read] Reader[R] {
                             ),
                         )
                     }
-                    return self.finish_record(fields, data, raw, field_position, start).map(
-                        |record| Option::Some((record, false)),
-                    )
+                    return self.finish_record(
+                        fields,
+                        data,
+                        raw,
+                        field_position,
+                        field_previous_cr,
+                        start,
+                    ).map(|record| Option::Some((record, false)))
                 },
             };
             consumed += 1;
+            if consumed == 1 {
+                field_previous_cr = previous_cr;
+            }
             if start.record > self.options.limits.max_records
                 || consumed > self.options.limits.max_record_bytes {
                 return Result::Err(
@@ -355,7 +369,7 @@ impl[R: Read] Reader[R] {
                 if terminates {
                     if value == 13 && self.options.terminator != Terminator::Byte(13) {
                         match self.next_byte() {
-                            Ok(Some((10, _))) => {
+                            Ok(Some((10, _, _))) => {
                                 consumed += 1;
                                 if consumed > self.options.limits.max_record_bytes {
                                     return Result::Err(
@@ -395,9 +409,14 @@ impl[R: Read] Reader[R] {
                         }
                     }
                     let blank = fields.is_empty() && raw.is_empty();
-                    return self.finish_record(fields, data, raw, field_position, start).map(
-                        |record| Option::Some((record, blank)),
-                    )
+                    return self.finish_record(
+                        fields,
+                        data,
+                        raw,
+                        field_position,
+                        field_previous_cr,
+                        start,
+                    ).map(|record| Option::Some((record, blank)))
                 }
                 if self.options.terminator == Terminator::CrLf && value == 10 {
                     return Result::Err(
@@ -410,7 +429,7 @@ impl[R: Read] Reader[R] {
                     )
                 }
                 if value == self.options.delimiter {
-                    push_field(fields, data, raw, field_position, self.options)?;
+                    push_field(fields, data, raw, field_position, field_previous_cr, self.options)?;
                     if fields.len() >= self.options.limits.max_columns {
                         return Result::Err(
                             error(
@@ -425,6 +444,7 @@ impl[R: Read] Reader[R] {
                     raw = data;
                     raw_shared = true;
                     field_position = self.current();
+                    field_previous_cr = false;
                     state = 0;
                     continue
                 }
@@ -586,6 +606,7 @@ fn push_field(
     data: Vec[byte],
     raw: Vec[byte],
     position: Position,
+    previous_cr: bool,
     options: ReadOptions,
 ) -> Result[(), Error] {
     if fields.len() >= options.limits.max_columns {
@@ -611,7 +632,7 @@ fn push_field(
     } else {
         data
     };
-    fields.push(Field { data: value, raw, position });
+    fields.push(Field { data: value, raw, position, previous_cr });
     Result::Ok(())
 }
 

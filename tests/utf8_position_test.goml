@@ -1,0 +1,66 @@
+package tests;
+
+use ecosystem::csv;
+use std::bytes;
+use std::testing;
+
+#[test]
+fn utf8_positions_count_crlf_once_across_custom_cr_record_boundaries() -> () {
+    for chunk in 1..8 {
+        let source = Chunks {
+            data: Vec::from_array([65.to_u8(), 13, 10, 255, 13, 66, 13]),
+            ..chunks("", chunk),
+        };
+        let reader = ok(
+            csv::Reader::new(
+                source,
+                csv::ReadOptions {
+                    terminator: csv::Terminator::Byte(13),
+                    ..csv::ReadOptions::new(),
+                },
+            ),
+        );
+        testing::assert(one(reader).values() == Vec::from_array(["A"]));
+        let record = testing::expect_some(ok(reader.next_bytes()), "raw invalid record");
+        testing::assert(one(reader).values() == Vec::from_array(["B"]));
+        let failure = kind(record.strings(), csv::ErrorKind::Utf8);
+        testing::assert_eq(failure.position.byte, 3);
+        testing::assert_eq(failure.position.record, 2);
+        testing::assert_eq(failure.position.line, 2);
+        testing::assert_eq(failure.position.column, 1);
+    }
+}
+
+#[test]
+fn utf8_positions_retain_cr_context_through_comment_lookahead() -> () {
+    for chunk in 1..10 {
+        let source = Chunks {
+            data: Vec::from_array([35.to_u8(), 65, 13, 10, 255, 13, 66, 13]),
+            ..chunks("", chunk),
+        };
+        let reader = ok(
+            csv::Reader::with_comment(
+                source,
+                csv::ReadOptions {
+                    terminator: csv::Terminator::Byte(13),
+                    ..csv::ReadOptions::new(),
+                },
+                35,
+            ),
+        );
+        let failure = kind(reader.next(), csv::ErrorKind::Utf8);
+        testing::assert_eq(failure.position.byte, 4);
+        testing::assert_eq(failure.position.record, 1);
+        testing::assert_eq(failure.position.line, 2);
+        testing::assert_eq(failure.position.column, 1);
+        testing::assert(one(reader).values() == Vec::from_array(["B"]));
+    }
+}
+
+#[test]
+fn independent_byte_records_have_no_preceding_cr_context() -> () {
+    let record = csv::ByteRecord::new(
+        Vec::from_array([bytes::Bytes::from_vec(Vec::from_array([10.to_u8(), 255]))]),
+    );
+    testing::assert_eq(kind(record.strings(), csv::ErrorKind::Utf8).position.line, 2);
+}

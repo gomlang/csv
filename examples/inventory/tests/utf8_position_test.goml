@@ -1,0 +1,23 @@
+package tests;
+
+use ecosystem::csv;
+use std::bytes;
+use std::io;
+use std::testing;
+
+#[test]
+fn custom_cr_records_keep_utf8_errors_on_the_correct_physical_line() -> () {
+    let reader = testing::expect_ok(
+        csv::Reader::new(
+            io::Cursor::new(bytes::Bytes::from_vec(Vec::from_array([65.to_u8(), 13, 10, 255, 13]))),
+            csv::ReadOptions { terminator: csv::Terminator::Byte(13), ..csv::ReadOptions::new() },
+        ),
+        "reader",
+    );
+    testing::assert(testing::expect_ok(reader.next(), "first record").is_some());
+    let failure = testing::expect_err(reader.next(), "invalid UTF-8");
+    testing::assert_eq(failure.kind, csv::ErrorKind::Utf8);
+    testing::assert_eq(failure.position.byte, 3);
+    testing::assert_eq(failure.position.line, 2);
+    testing::assert_eq(failure.position.column, 1);
+}

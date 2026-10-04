@@ -369,13 +369,13 @@ impl[R: Read] Reader[R] {
                 if terminates {
                     if value == 13 && self.options.terminator != Terminator::Byte(13) {
                         match self.next_byte() {
-                            Ok(Some((10, _, _))) => {
+                            Ok(Some((10, lf_position, _))) => {
                                 consumed += 1;
                                 if consumed > self.options.limits.max_record_bytes {
                                     return Result::Err(
                                         error(
                                             ErrorKind::Limit,
-                                            self.current(),
+                                            lf_position,
                                             Option::Some(fields.len()),
                                             "record byte limit exceeded",
                                         ),

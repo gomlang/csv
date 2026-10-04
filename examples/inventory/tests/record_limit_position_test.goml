@@ -1,0 +1,29 @@
+package tests;
+
+use ecosystem::csv;
+use std::bytes;
+use std::io;
+use std::testing;
+
+#[test]
+fn consumer_header_limit_points_to_the_excess_crlf_byte() -> () {
+    let reader = testing::expect_ok(
+        csv::Reader::new(
+            io::Cursor::new(bytes::Bytes::from_string("id\r\n1\r\n")),
+            csv::ReadOptions {
+                headers: true,
+                buffer_size: 1,
+                limits: csv::Limits { max_record_bytes: 3, ..csv::Limits::new() },
+                ..csv::ReadOptions::new(),
+            },
+        ),
+        "reader",
+    );
+    let failure = testing::expect_err(reader.headers(), "header record limit");
+    testing::assert_eq(failure.kind, csv::ErrorKind::Limit);
+    testing::assert_eq(failure.position, csv::Position { byte: 3, record: 1, line: 2, column: 1 });
+    testing::assert_eq(
+        testing::expect_err(reader.next(), "fused reader").position,
+        failure.position,
+    );
+}

@@ -200,8 +200,9 @@ of a failed row.
 record count and total stream bytes. Defaults are 1 MiB per field, 8 MiB per wire
 record, 4,096 columns, 1,000,000 records and 1 GiB total. Record byte limits include
 quotes, delimiters and terminators; total byte limits also include the BOM.
-Header and skipped blank records count toward record limits. A delimiter that
-would begin a field beyond `max_columns` fails immediately with `Limit` at that
+Record-byte limit errors point to the first excess wire byte, including the LF
+of a CRLF terminator. Header and skipped blank records count toward record limits.
+A delimiter that would begin a field beyond `max_columns` fails immediately with `Limit` at that
 field's starting position, before parsing its contents or requesting further input. This also
 applies to empty excess fields and header rows, and fuses the reader. Input may buffer
 ahead up to the configured read buffer; an additional byte can be probed to

@@ -83,14 +83,16 @@ impl[W: Write] Writer[W] {
     }
 
     fn emit(self: Writer[W], value: Vec[byte], columns: isize) -> Result[(), Error] {
-        let output = Vec::new();
+        // The encoded row is private; only the initial BOM needs another buffer.
+        let mut output = value;
         if self.position.get().byte == 0 && self.options.emit_bom {
+            output = Vec::new();
             output.push(239.to_u8());
             output.push(187.to_u8());
             output.push(191.to_u8());
-        }
-        for item in value {
-            output.push(item);
+            for item in value {
+                output.push(item);
+            }
         }
         let mut offset = 0;
         while offset < output.len() {

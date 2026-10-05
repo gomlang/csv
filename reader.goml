@@ -123,6 +123,11 @@ impl[R: Read] Reader[R] {
                 error(ErrorKind::Limit, position, Option::None, "total input byte limit exceeded"),
             )
         }
+        Result::Ok(Option::Some(self.buffered_byte()))
+    }
+
+    fn buffered_byte(self: Reader[R]) -> (byte, Position, bool) {
+        let position = self.position.get();
         let value = self.buffer.get(self.offset.get());
         let previous_cr = self.previous_cr.get();
         self.offset.set(self.offset.get() + 1);
@@ -140,7 +145,7 @@ impl[R: Read] Reader[R] {
         }
         self.previous_cr.set(value == 13);
         self.position.set(next);
-        Result::Ok(Option::Some((value, position, previous_cr)))
+        (value, position, previous_cr)
     }
 
     fn initialize(self: Reader[R]) -> Result[(), Error] {
@@ -318,32 +323,38 @@ impl[R: Read] Reader[R] {
         let mut state = 0;
         let mut consumed = 0;
         loop {
-            let item = self.next_byte()?;
-            let (value, position, previous_cr) = match item {
-                Some(item) => item,
-                None => {
-                    if consumed == 0 {
-                        return Result::Ok(Option::None)
-                    }
-                    if state == 2 && self.options.strict {
-                        return Result::Err(
-                            error(
-                                ErrorKind::Syntax,
-                                self.current(),
-                                Option::Some(fields.len()),
-                                "unterminated quoted field",
-                            ),
-                        )
-                    }
-                    return self.finish_record(
-                        fields,
-                        data,
-                        raw,
-                        field_position,
-                        field_previous_cr,
-                        start,
-                    ).map(|record| Option::Some((record, false)))
-                },
+            let (value, position, previous_cr) = if self.pending_offset.get()
+                >= self.pending.get().len()
+                && self.offset.get() < self.length.get()
+                && self.position.get().byte < self.options.limits.max_total_bytes {
+                self.buffered_byte()
+            } else {
+                match self.next_byte()? {
+                    Some(item) => item,
+                    None => {
+                        if consumed == 0 {
+                            return Result::Ok(Option::None)
+                        }
+                        if state == 2 && self.options.strict {
+                            return Result::Err(
+                                error(
+                                    ErrorKind::Syntax,
+                                    self.current(),
+                                    Option::Some(fields.len()),
+                                    "unterminated quoted field",
+                                ),
+                            )
+                        }
+                        return self.finish_record(
+                            fields,
+                            data,
+                            raw,
+                            field_position,
+                            field_previous_cr,
+                            start,
+                        ).map(|record| Option::Some((record, false)))
+                    },
+                }
             };
             consumed += 1;
             if consumed == 1 {

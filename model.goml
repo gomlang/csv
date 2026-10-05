@@ -293,7 +293,7 @@ impl ByteRecord {
                     error(ErrorKind::Utf8, position, Option::Some(index), invalid.to_string()),
                 )
             }
-            let value = utf8::decode(field.data.copy()).map_err(
+            let value = utf8::decode(field.data).map_err(
                 |invalid| error(
                     ErrorKind::Utf8,
                     field.position,

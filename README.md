@@ -226,17 +226,17 @@ consults [rust-csv's reader API](https://docs.rs/csv/latest/csv/struct.ReaderBui
 it does not claim identical defaults or permissive parsing behavior.
 
 Run `(cd ../verification && just ecosystem-test csv)` from this library repository. `examples/inventory` exercises
-real file round trips; `goml verify` repeats its tests against an independent registry snapshot. All tests are GoML-native; no Python
-helper or CI integration is required.
+real file round trips; the ecosystem verifier repeats its tests using an isolated registry snapshot. All tests are GoML-native; no Python
+helper is required.
 
 ## Development and examples
 
-Requires GoML 0.1.56 or newer. The `examples/inventory/` example shares the root manifest; test-only helpers are declared in `[dev-dependencies]`. From the library root, run:
+Requires the [current GoML toolchain](https://github.com/gomlang/verification/blob/main/ci/toolchain.json) with unversioned registry support. The `examples/inventory/` example shares the root manifest; test-only helpers are declared in `[dev-dependencies]`. From the library root, run:
 
 ```sh
 goml run --example inventory
 goml test
-goml verify --timeout 300s
+(cd ../verification && just ecosystem-test csv)
 ```
 
-`goml test` builds the example and runs its tests. `goml verify` repeats the example checks as an independent module against an isolated registry snapshot. `(cd ../verification && just ecosystem-test csv)` also retains the library-specific smoke and compatibility checks.
+`goml test` builds the example and runs its tests. `(cd ../verification && just ecosystem-test csv)` runs the library-specific smoke and compatibility checks.

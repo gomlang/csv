@@ -1,7 +1,7 @@
 # CSV inventory example
 
 This example uses the CSV library in this repository and the
-`ecosystem::tempfile = "0.1.0"` development dependency.
+`ecosystem::tempfile = true` development dependency.
 
 The runnable example imports an inventory file with a UTF-8 BOM, quoted and
 reordered headers, Unicode names, embedded commas, escaped quotes and a multiline
@@ -30,4 +30,4 @@ Tests cover real file round trips and cleanup, cross-module generic `Read`/`Writ
 adapters, derived Serde conversion, leading-zero identifiers, optional notes,
 quoted multiline fields, empty inventory exports, integer conversion errors and inventory-total overflow.
 
-This example shares the library root manifest and development dependencies. Run `goml verify --example inventory` to build and test it as an independent downstream module.
+This example shares the library root manifest and development dependencies. Run `goml test` to build and test the library and its examples.

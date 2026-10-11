@@ -2,4 +2,4 @@
 path = "ecosystem::csv"
 
 [dev-dependencies]
-"ecosystem::tempfile" = "0.1.0"
+"ecosystem::tempfile" = true

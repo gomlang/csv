@@ -16,11 +16,11 @@ The expected inventory is three rows, two active products, six units and 6,960
 cents. The example prints its summary and normalized CSV.
 
 ```sh
-(cd ../../../verification && just ecosystem-test csv)
+(cd ../../../workflows && just ecosystem-test csv)
 ```
 
 For direct commands, obtain an isolated registry with
-`../../../verification/_artifact/bin/verification --registry-only` from this
+`../../../workflows/_artifact/bin/verification --registry-only` from this
 directory, then set the returned path as `GOML_HOME` while running
 `../../../../goml-dev/stage2/bin/goml check --example inventory`, `goml test --example inventory`, or `goml run --example inventory` in this directory.
 `GOFLAGS=-race goml test --example inventory --target-dir _artifact/race` validates the same native

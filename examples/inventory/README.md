@@ -20,9 +20,9 @@ cents. The example prints its summary and normalized CSV.
 ```
 
 For direct commands, obtain an isolated registry with
-`../../../workflows/_artifact/bin/verification --registry-only` from this
+`(cd ../../../workflows && just ecosystem-test --registry-only csv)` from this
 directory, then set the returned path as `GOML_HOME` while running
-`../../../../goml-dev/stage2/bin/goml check --example inventory`, `goml test --example inventory`, or `goml run --example inventory` in this directory.
+`goml check --example inventory`, `goml test --example inventory`, or `goml run --example inventory` in this directory.
 `GOFLAGS=-race goml test --example inventory --target-dir _artifact/race` validates the same native
 example tests with the race detector.
 

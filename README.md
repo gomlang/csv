@@ -179,6 +179,9 @@ offset or a guarantee that the remaining bytes were never written. Subsequent
 writer calls return the saved error without replaying the row or forwarding
 flush. Validation errors before output do not poison the writer, so a caller may
 correct the row and try again. Flush failures also fuse the writer.
+If an output provider panics during writing or flushing, the panic propagates.
+After a caller catches it, subsequent writer operations return a saved I/O error
+without touching the provider; positions still count only confirmed writes.
 
 A failed read may already have consumed source bytes or modified its destination
 buffer without reporting a count. Those bytes are not parsed, and the saved

@@ -83,6 +83,21 @@ impl[W: Write] Writer[W] {
     }
 
     fn emit(self: Writer[W], value: Vec[byte], columns: isize) -> Result[(), Error] {
+        let completed = Ref::new(false);
+        defer {
+            if !completed.get() && self.failure.get().is_none() {
+                self.failure.set(
+                    Option::Some(
+                        error(
+                            ErrorKind::Io,
+                            self.position.get(),
+                            Option::None,
+                            "CSV output operation unwound",
+                        ),
+                    ),
+                );
+            }
+        };
         // The encoded row is private; only the initial BOM needs another buffer.
         let mut output = value;
         if self.position.get().byte == 0 && self.options.emit_bom {
@@ -140,6 +155,7 @@ impl[W: Write] Writer[W] {
             Position { record: self.position.get().record + 1, ..self.position.get() },
         );
         self.width.set(Option::Some(columns));
+        completed.set(true);
         Result::Ok(())
     }
 
@@ -211,7 +227,24 @@ impl[W: Write] Writer[W] {
         let _ = self.gate.recv();
         defer self.gate.send(());
         self.ready()?;
-        match self.writer.flush() {
+        let completed = Ref::new(false);
+        defer {
+            if !completed.get() && self.failure.get().is_none() {
+                self.failure.set(
+                    Option::Some(
+                        error(
+                            ErrorKind::Io,
+                            self.position.get(),
+                            Option::None,
+                            "CSV flush operation unwound",
+                        ),
+                    ),
+                );
+            }
+        };
+        let result = self.writer.flush();
+        completed.set(true);
+        match result {
             Ok(()) => Result::Ok(()),
             Err(cause) => {
                 let failure = io_error(self.position.get(), cause);

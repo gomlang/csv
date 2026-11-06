@@ -1,0 +1,63 @@
+package tests;
+
+use ecosystem::csv;
+use std::io;
+use io::Write;
+use std::panic;
+use std::testing;
+
+struct PanicCsvSink {
+    data: Vec[byte],
+    calls: Ref[isize],
+    flushes: Ref[isize],
+    panic_flush: bool,
+}
+
+impl Write for PanicCsvSink {
+    fn write(self: PanicCsvSink, data: Slice[byte]) -> Result[isize, io::Error] {
+        self.calls.set(self.calls.get() + 1);
+        self.data.push(data[0]);
+        if !self.panic_flush && self.calls.get() == 1 {
+            panic::raise("write interrupted after side effect");
+        }
+        Result::Ok(1)
+    }
+
+    fn flush(self: PanicCsvSink) -> Result[(), io::Error] {
+        self.flushes.set(self.flushes.get() + 1);
+        if self.panic_flush && self.flushes.get() == 1 {
+            panic::raise("flush interrupted after side effect");
+        }
+        Result::Ok(())
+    }
+}
+
+#[test]
+fn csv_writer_unwound_provider_is_not_retried() -> () {
+    for panic_flush in[false, true] {
+        let sink = PanicCsvSink {
+            data: Vec::new(),
+            calls: Ref::new(0),
+            flushes: Ref::new(0),
+            panic_flush,
+        };
+        let writer = ok(csv::Writer::new(sink, csv::WriteOptions::new()));
+        let row = csv::StringRecord::new(Vec::from_array(["abc"]));
+        if panic_flush {
+            testing::assert_ok(writer.write(row));
+            testing::assert_err(panic::catch(|| writer.flush()));
+        } else {
+            testing::assert_err(panic::catch(|| writer.write(row)));
+            testing::assert_eq(writer.position().byte, 0);
+            testing::assert_eq(sink.data.len(), 1);
+        }
+        let before = writer.position();
+        let calls = sink.calls.get();
+        let flushes = sink.flushes.get();
+        kind(writer.write(row), csv::ErrorKind::Io);
+        kind(writer.flush(), csv::ErrorKind::Io);
+        testing::assert_eq(writer.position(), before);
+        testing::assert_eq(sink.calls.get(), calls);
+        testing::assert_eq(sink.flushes.get(), flushes);
+    }
+}
